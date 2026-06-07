@@ -24,6 +24,9 @@ import { HistoryView } from './views/HistoryView';
 import { ReportsView } from './views/ReportsView';
 import { OperationsView } from './views/OperationsView';
 import { SettingsView } from './views/SettingsView';
+import { cloudService } from './services/cloudService';
+import { CloudLoginScreen, LicenseLockScreen, OnlineOrderCenter } from './views/OnlineOrders';
+import { startShift, endShift } from './services/shiftStorage';
 
 // The device mode (POS vs Kiosk) is no longer fixed at build time — it is a
 // per-device setting loaded from storage at startup (see services/modeStorage).
@@ -50,20 +53,50 @@ export default function App() {
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [loading, setLoading] = useState(true);
   const [settingsTab, setSettingsTab] = useState('pax');
+  const [cloudIn, setCloudIn] = useState(false);                 // device linked to a restaurant account
+  const [license, setLicense] = useState({ checked: false, allowed: true, reason: '' });
 
   const isKiosk = mode === MODE_KIOSK;
 
   useEffect(() => { applyTheme(theme); }, [theme]);
 
   useEffect(() => {
-    Promise.all([loadMenu(), loadCategories(), loadShop(), initOrderCounter(), loadMode()])
+    Promise.all([loadMenu(), loadCategories(), loadShop(), initOrderCounter(), loadMode(), cloudService.ready])
       .then(([m, c, s, _counter, savedMode]) => {
         setMenu(m); setCategories(c); setShop(s);
         setMode(savedMode);
+        setCloudIn(cloudService.isLoggedIn());
         if (savedMode === MODE_KIOSK) { setStaff(KIOSK_STAFF); setView('kiosk'); }
         setLoading(false);
       });
   }, []);
+
+  // License gate — re-check on link + every 5 min. Backend allows an offline
+  // grace window (cached in cloudService), so this never hard-locks on a blip.
+  useEffect(() => {
+    if (!cloudIn) { setLicense({ checked: true, allowed: false, reason: 'not_linked' }); return; }
+    let alive = true;
+    const run = async () => {
+      const r = await cloudService.checkLicense();
+      if (alive) setLicense({ checked: true, allowed: r.allowed, reason: r.reason });
+    };
+    run();
+    const t = setInterval(run, 5 * 60 * 1000);
+    return () => { alive = false; clearInterval(t); };
+  }, [cloudIn]);
+
+  const recheckLicense = async () => {
+    const r = await cloudService.checkLicense();
+    setLicense({ checked: true, allowed: r.allowed, reason: r.reason });
+  };
+  const unlinkDevice = async () => {
+    await endShift();
+    await cloudService.logout();
+    clearCurrentStaff();
+    setStaff(null);
+    setCloudIn(false);
+    setLicense({ checked: false, allowed: true, reason: '' });
+  };
 
   // Background order sync between kiosk(s) and POS. Re-runs whenever the device
   // mode changes (e.g. a manager flips this tablet from POS to Kiosk), so the
@@ -115,8 +148,9 @@ export default function App() {
   };
 
   const toggleTheme = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
-  const handleLogout = () => {
+  const handleLogout = async () => {
     logActivity('logout', 'Signed out', { staff });
+    await endShift();
     clearCurrentStaff();
     setStaff(null);
   };
@@ -133,12 +167,24 @@ export default function App() {
     return <div style={loadingStyle}>Loading...</div>;
   }
 
+  // Gate 1 — the device must be linked to a restaurant (cloud) account.
+  if (!cloudIn) {
+    return <CloudLoginScreen onDone={() => setCloudIn(true)} />;
+  }
+
+  // Gate 2 — the restaurant's subscription/license must be valid (offline grace
+  // is handled inside checkLicense, so this only triggers on a real lock).
+  if (license.checked && !license.allowed) {
+    return <LicenseLockScreen reason={license.reason} onRecheck={recheckLicense} onSwitch={unlinkDevice} />;
+  }
+
+  // Gate 3 — staff PIN sign-in (POS only; kiosk runs unattended). Opens a shift.
   if (!staff && !isKiosk) {
     return (
       <PinLockScreen
-        title="Vido Food"
+        title={cloudService.storeName() || 'Vido Food'}
         subtitle="Enter PIN to sign in"
-        onUnlock={(s) => setStaff(s)}
+        onUnlock={(s) => { setStaff(s); startShift(s); }}
       />
     );
   }
@@ -180,6 +226,7 @@ export default function App() {
           view={view} openView={openView}
           theme={theme} toggleTheme={toggleTheme}
           staff={staff} onLogout={handleLogout}
+          storeName={cloudService.storeName()} onUnlink={unlinkDevice}
         />
 
         <div style={contentStyle}>
@@ -197,6 +244,9 @@ export default function App() {
             />
           )}
         </div>
+
+        {/* Cloud online orders — owner confirms → captures card + prints ticket. */}
+        <OnlineOrderCenter staff={staff} />
       </div>
     </ShopContext.Provider>
   );
@@ -205,7 +255,7 @@ export default function App() {
 // ============================================================================
 // TOP BAR (inline component)
 // ============================================================================
-function TopBar({ view, openView, theme, toggleTheme, staff, onLogout }) {
+function TopBar({ view, openView, theme, toggleTheme, staff, onLogout, storeName, onUnlink }) {
   const { shop } = useShop();
   const [paxOnline, setPaxOnline] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -325,9 +375,20 @@ function TopBar({ view, openView, theme, toggleTheme, staff, onLogout }) {
                     </div>
                   </div>
                 </div>
+                {storeName && (
+                  <div style={{ padding: '8px 14px', borderBottom: `1px solid ${C.border}`, fontSize: 11, fontWeight: 800, color: C.textMute, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Store size={12} /> {storeName}
+                  </div>
+                )}
                 <button onClick={() => { setUserMenuOpen(false); onLogout(); }} style={tbStyles.userMenuItem}>
                   <LogOut size={14} /> Sign out
                 </button>
+                {onUnlink && (
+                  <button onClick={() => { setUserMenuOpen(false); if (window.confirm('Unlink this device from the restaurant? You will need to sign in again.')) onUnlink(); }}
+                    style={{ ...tbStyles.userMenuItem, color: C.red, borderTop: `1px solid ${C.border}` }}>
+                    <WifiOff size={14} /> Unlink device
+                  </button>
+                )}
               </div>
             </>
           )}
