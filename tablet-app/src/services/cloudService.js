@@ -137,6 +137,11 @@ class CloudService {
     return this._fetch(`/api/online-orders/${encodeURIComponent(id)}/ready`, { method: 'POST', body: {} });
   }
 
+  /** Generic status move (e.g. 'preparing', 'completed') — syncs back to the web order. */
+  setStatus(id, status) {
+    return this._fetch(`/api/online-orders/${encodeURIComponent(id)}/update`, { method: 'POST', body: { status } });
+  }
+
   /** Acknowledge the ticket was printed so it stops flagging shouldPrint. */
   markPrinted(id) {
     return this._fetch(`/api/online-orders/${encodeURIComponent(id)}/print`, {

@@ -25,7 +25,8 @@ import { ReportsView } from './views/ReportsView';
 import { OperationsView } from './views/OperationsView';
 import { SettingsView } from './views/SettingsView';
 import { cloudService } from './services/cloudService';
-import { CloudLoginScreen, LicenseLockScreen, OnlineOrderCenter } from './views/OnlineOrders';
+import { CloudLoginScreen, LicenseLockScreen, OnlineOrdersProvider, NewOrderTakeover, OrdersBoard } from './views/OnlineOrders';
+import { ClipboardList } from 'lucide-react';
 import { startShift, endShift } from './services/shiftStorage';
 
 // The device mode (POS vs Kiosk) is no longer fixed at build time — it is a
@@ -212,42 +213,45 @@ export default function App() {
 
   return (
     <ShopContext.Provider value={{ shop, updateShop }}>
-      <div style={appStyle}>
-        <style>{`
-          @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
-          @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-          .spin { animation: spin 1.5s linear infinite; }
-          ::-webkit-scrollbar { width: 8px; height: 8px; }
-          ::-webkit-scrollbar-track { background: var(--panel); }
-          ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-        `}</style>
+      <OnlineOrdersProvider staff={staff}>
+        <div style={appStyle}>
+          <style>{`
+            @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+            @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+            .spin { animation: spin 1.5s linear infinite; }
+            ::-webkit-scrollbar { width: 8px; height: 8px; }
+            ::-webkit-scrollbar-track { background: var(--panel); }
+            ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+          `}</style>
 
-        <TopBar
-          view={view} openView={openView}
-          theme={theme} toggleTheme={toggleTheme}
-          staff={staff} onLogout={handleLogout}
-          storeName={cloudService.storeName()} onUnlink={unlinkDevice}
-        />
+          <TopBar
+            view={view} openView={openView}
+            theme={theme} toggleTheme={toggleTheme}
+            staff={staff} onLogout={handleLogout}
+            storeName={cloudService.storeName()} onUnlink={unlinkDevice}
+          />
 
-        <div style={contentStyle}>
-          {view === 'sell' && <OrderView menu={menu} categories={categories} staff={staff} />}
-          {view === 'kiosk' && <KioskOrderView menu={menu} categories={categories} staff={staff} />}
-          {view === 'operations' && <OperationsView staff={staff} />}
-          {view === 'orders' && <HistoryView />}
-          {view === 'reports' && <ReportsView />}
-          {view === 'settings' && (
-            <SettingsView
-              menu={menu} categories={categories}
-              refreshMenu={refreshMenu} staff={staff}
-              initialTab={settingsTab}
-              mode={mode} changeMode={changeMode}
-            />
-          )}
+          <div style={contentStyle}>
+            {view === 'sell' && <OrderView menu={menu} categories={categories} staff={staff} />}
+            {view === 'kiosk' && <KioskOrderView menu={menu} categories={categories} staff={staff} />}
+            {view === 'board' && <OrdersBoard />}
+            {view === 'operations' && <OperationsView staff={staff} />}
+            {view === 'orders' && <HistoryView />}
+            {view === 'reports' && <ReportsView />}
+            {view === 'settings' && (
+              <SettingsView
+                menu={menu} categories={categories}
+                refreshMenu={refreshMenu} staff={staff}
+                initialTab={settingsTab}
+                mode={mode} changeMode={changeMode}
+              />
+            )}
+          </div>
+
+          {/* Full-screen takeover for incoming online orders (chime + Accept/Reject). */}
+          <NewOrderTakeover />
         </div>
-
-        {/* Cloud online orders — owner confirms → captures card + prints ticket. */}
-        <OnlineOrderCenter staff={staff} />
-      </div>
+      </OnlineOrdersProvider>
     </ShopContext.Provider>
   );
 }
@@ -273,6 +277,7 @@ function TopBar({ view, openView, theme, toggleTheme, staff, onLogout, storeName
 
   const menuItems = [
     { id: 'sell', label: 'Sell / Order Entry', desc: 'Create tickets and take payment', icon: ShoppingCart, view: 'sell' },
+    { id: 'board', label: 'Online Orders', desc: 'Incoming web & kiosk orders board', icon: ClipboardList, view: 'board' },
     { id: 'kiosk', label: 'Kiosk Mode', desc: 'Customer self-order screen', icon: Monitor, view: 'kiosk' },
     { id: 'operations', label: 'Operations', desc: 'Queue, closeout, refunds, devices', icon: Activity, view: 'operations' },
     { id: 'orders', label: 'Order History', desc: 'Look up completed receipts', icon: Receipt, view: 'orders' },
@@ -288,7 +293,7 @@ function TopBar({ view, openView, theme, toggleTheme, staff, onLogout, storeName
     { id: 'settings', label: 'System Settings', desc: 'Version and diagnostics', icon: SettingsIcon, view: 'settings', tab: 'about' },
     { id: 'support', label: 'Daily Ops', desc: 'Use reports and order history for closeout', icon: LifeBuoy, view: 'reports' },
   ];
-  const viewLabels = { sell: 'Sell', kiosk: 'Kiosk', operations: 'Ops', orders: 'Orders', reports: 'Reports', settings: 'Settings' };
+  const viewLabels = { sell: 'Sell', board: 'Online', kiosk: 'Kiosk', operations: 'Ops', orders: 'Orders', reports: 'Reports', settings: 'Settings' };
 
   const chooseMenuItem = (item) => {
     setMainMenuOpen(false);
