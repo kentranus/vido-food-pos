@@ -92,6 +92,17 @@ jobs:
           mkdir -p android/app/src/main/res/xml
           cp android-config/network_security_config.xml android/app/src/main/res/xml/
 
+      - name: Configure Firebase Cloud Messaging
+        working-directory: tablet-app
+        run: |
+          cp google-services.json android/app/google-services.json
+          # project-level: add the google-services classpath next to the AGP one
+          sed -i "s|\(classpath 'com.android.tools.build:gradle[^']*'\)|\1\n        classpath 'com.google.gms:google-services:4.4.2'|" android/build.gradle
+          # app-level: apply the google-services plugin
+          printf "\napply plugin: 'com.google.gms.google-services'\n" >> android/app/build.gradle
+          echo "--- google-services wired ---"
+          grep -n "google-services" android/build.gradle android/app/build.gradle || true
+
       - name: Build APK
         working-directory: tablet-app/android
         run: |

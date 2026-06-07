@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "173255945602",
+    "project_id": "vido-food",
+    "storage_bucket": "vido-food.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:173255945602:android:f253ad49d074df86fd339b",
+        "android_client_info": {
+          "package_name": "com.vido.food"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB40Lwkugnx9SLCjfmKwIoty4FzpvX7xhw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

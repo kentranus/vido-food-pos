@@ -28,6 +28,7 @@ import { cloudService } from './services/cloudService';
 import { CloudLoginScreen, LicenseLockScreen, OnlineOrdersProvider, NewOrderTakeover, OrdersBoard } from './views/OnlineOrders';
 import { ClipboardList } from 'lucide-react';
 import { startShift, endShift } from './services/shiftStorage';
+import { registerPush } from './services/fcmService';
 
 // The device mode (POS vs Kiosk) is no longer fixed at build time — it is a
 // per-device setting loaded from storage at startup (see services/modeStorage).
@@ -84,6 +85,13 @@ export default function App() {
     run();
     const t = setInterval(run, 5 * 60 * 1000);
     return () => { alive = false; clearInterval(t); };
+  }, [cloudIn]);
+
+  // Register for FCM push once the device is linked, so "new order" alerts ring
+  // even when the app is closed / screen locked (native only; web is a no-op).
+  useEffect(() => {
+    if (!cloudIn) return;
+    registerPush({ onToken: (t) => cloudService.registerFcmToken(t).catch(() => {}) });
   }, [cloudIn]);
 
   const recheckLicense = async () => {
