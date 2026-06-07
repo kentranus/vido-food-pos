@@ -142,6 +142,12 @@ class CloudService {
     return this._fetch(`/api/online-orders/${encodeURIComponent(id)}/update`, { method: 'POST', body: { status } });
   }
 
+  /** Register this device's FCM token so the server can push new-order alerts. */
+  registerFcmToken(token) {
+    if (!token) return Promise.resolve({ ok: false });
+    return this._fetch('/api/devices/fcm-token', { method: 'POST', body: { token, platform: 'android' } });
+  }
+
   /** Acknowledge the ticket was printed so it stops flagging shouldPrint. */
   markPrinted(id) {
     return this._fetch(`/api/online-orders/${encodeURIComponent(id)}/print`, {
