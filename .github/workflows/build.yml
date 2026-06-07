@@ -1,0 +1,133 @@
+name: Build Vido Food POS APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build Android POS APK
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      APP_MODE: pos
+      VITE_APP_MODE: pos
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Inject build metadata
+        working-directory: tablet-app/src
+        run: |
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COMMIT_SHA="${{ github.sha }}"
+          COMMIT_SHORT="${COMMIT_SHA:0:7}"
+          BUILD_NUMBER="${{ github.run_number }}"
+          sed -i "s|__BUILD_DATE__|$BUILD_DATE|g" version.js
+          sed -i "s|__COMMIT_SHA__|$COMMIT_SHA|g" version.js
+          sed -i "s|__COMMIT_SHORT__|$COMMIT_SHORT|g" version.js
+          sed -i "s|__BUILD_NUMBER__|$BUILD_NUMBER|g" version.js
+
+      - name: Install dependencies
+        working-directory: tablet-app
+        run: npm install --legacy-peer-deps
+
+      - name: Ensure TypeScript
+        working-directory: tablet-app
+        run: npm install --save-dev typescript@^5.4.5 --legacy-peer-deps
+
+      - name: Build web bundle (for APK wrapper)
+        working-directory: tablet-app
+        run: VITE_APP_MODE=pos npm run build
+
+      - name: Add Android platform
+        working-directory: tablet-app
+        run: npx cap add android
+
+      - name: Sync Capacitor
+        working-directory: tablet-app
+        run: npx cap sync android
+
+      - name: Generate app launcher icon + splash (Vido Food icon)
+        working-directory: tablet-app
+        run: |
+          npx --yes @capacitor/assets generate --android \
+            --assetPath resources \
+            --iconBackgroundColor '#FFFFFF' --iconBackgroundColorDark '#0F1419' \
+            --splashBackgroundColor '#FFCC00' --splashBackgroundColorDark '#0F1419' \
+            || echo "asset generation skipped/failed (non-blocking)"
+
+      - name: Install TcpSocket plugin
+        working-directory: tablet-app
+        run: |
+          PKG_DIR="android/app/src/main/java/com/vido/food"
+          mkdir -p "$PKG_DIR"
+          cp android-plugin/*.java "$PKG_DIR/"
+
+      - name: Install POSLink Android SDK
+        working-directory: tablet-app
+        run: |
+          mkdir -p android/app/libAars
+          cp android-libs/poslink/* android/app/libAars/
+          node scripts/configure-poslink-android.mjs
+
+      - name: Copy network security config
+        working-directory: tablet-app
+        run: |
+          mkdir -p android/app/src/main/res/xml
+          cp android-config/network_security_config.xml android/app/src/main/res/xml/
+
+      - name: Build APK
+        working-directory: tablet-app/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Rename APK
+        run: |
+          cp tablet-app/android/app/build/outputs/apk/debug/app-debug.apk vido-food-pos.apk
+          cp vido-food-pos.apk vido-food-pos-build-${{ github.run_number }}.apk
+
+      - name: Upload APK (artifact)
+        uses: actions/upload-artifact@v5
+        with:
+          name: vido-food-pos-apk-build-${{ github.run_number }}
+          path: vido-food-pos-build-${{ github.run_number }}.apk
+          retention-days: 30
+
+      - name: Publish GitHub Release (public download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Vido Food POS — build ${{ github.run_number }}
+          body: |
+            Vido Food POS (Android) — debug APK, build ${{ github.run_number }}.
+            Tải về: nút **vido-food-pos.apk** bên dưới, hoặc link cố định:
+            https://github.com/${{ github.repository }}/releases/latest/download/vido-food-pos.apk
+
+            Cài: mở file APK trên Android → cho phép "Cài từ nguồn này" → Install.
+          files: vido-food-pos.apk
+          make_latest: true
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: build-logs
+          path: tablet-app/android/app/build/reports/
+          retention-days: 7
