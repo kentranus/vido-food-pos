@@ -27,11 +27,13 @@ export async function registerPush({ onToken, onForeground } = {}) {
     }
     if (perm.receive !== 'granted') { _started = false; return; }
 
-    // High-importance channel → heads-up + sound when the app is in background.
+    // High-importance channel with the custom "new order" bell. NOTE: a channel's
+    // sound is locked once created, so we use a fresh id ('orders_v2') to switch
+    // away from the old default-sound channel. sound = raw resource name (order_alert.wav).
     try {
       await PushNotifications.createChannel({
-        id: 'orders', name: 'New orders', description: 'Incoming online orders',
-        importance: 5, visibility: 1, vibration: true,
+        id: 'orders_v2', name: 'New orders', description: 'Incoming online orders',
+        importance: 5, visibility: 1, vibration: true, sound: 'order_alert',
       });
     } catch { /* channel may already exist */ }
 
