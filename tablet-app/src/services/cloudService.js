@@ -159,18 +159,17 @@ export function onlineOrderToTicket(o) {
     type: o.orderType || 'PICKUP',
     source: 'Online',
     completedAt: new Date().toISOString(),
-    staffName: o.customer || o.customerName || '',
+    customerName: o.customer || o.customerName || '',
+    customerPhone: o.customerPhone || '',
+    tableNumber: o.tableNumber || '',
     items: (o.items || []).map((it) => ({
       qty: it.quantity || 1,
       name: it.nameSnapshot || it.name || 'Item',
       category: 'snack', // skip the boba sugar/ice auto-line; web modifiers are listed below
       toppings: (it.modifiers || []).map((m) => ({ name: m.optionName || m.name })),
+      note: it.notes || '', // per-item instruction, e.g. "less ice"
     })),
-    note: [
-      (o.customer || o.customerName) && `Customer: ${o.customer || o.customerName}`,
-      o.customerPhone && `Tel: ${o.customerPhone}`,
-      o.notes,
-    ].filter(Boolean).join('  |  '),
+    note: o.notes || '', // order-level note
   };
 }
 

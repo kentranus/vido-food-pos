@@ -2133,6 +2133,14 @@ export async function printKitchenTicket(order) {
   printKitchenTicket80mm(order);
 }
 
+// Friendly source banner so the kitchen instantly sees where an order came from.
+function sourceLabel(order) {
+  const s = String(order.source || 'pos').toLowerCase();
+  if (s.includes('online') || s.includes('web')) return 'ONLINE ORDER';
+  if (s.includes('kiosk')) return 'KIOSK ORDER';
+  return 'COUNTER';
+}
+
 function buildKitchenTicketEscpos(order) {
   const enc = new TextEncoder();
   const out = [];
@@ -2141,56 +2149,78 @@ function buildKitchenTicketEscpos(order) {
   const line = (s = '') => text(s + '\n');
   const width = 42;
   const rule = () => line('-'.repeat(width));
-  push(0x1B, 0x40);
-  push(0x1B, 0x45, 0x01);
-  line(`ORDER #${order.number}  ${String(order.type || '').toUpperCase()}`);
-  push(0x1B, 0x45, 0x00);
+  const bold = (on) => push(0x1B, 0x45, on ? 0x01 : 0x00);
+  const big = (on) => push(0x1D, 0x21, on ? 0x11 : 0x00); // double width+height / normal
+  const align = (n) => push(0x1B, 0x61, n);               // 0 left, 1 center
+
+  push(0x1B, 0x40); // reset
+
+  // 1) BIG source banner + order number — visible across the kitchen.
+  align(1); bold(1); big(1);
+  line(sourceLabel(order));
+  line(`#${order.number}`);
+  big(0); align(0);
+
+  // 2) Type + table, time.
+  const type = String(order.type || order.orderType || '').toUpperCase();
+  bold(1); line(`${type}${order.tableNumber ? `   TABLE ${order.tableNumber}` : ''}`); bold(0);
   line(new Date(order.completedAt || Date.now()).toLocaleString());
-  if (order.source) line(`Source: ${order.source}`);
-  if (order.staffName) line(`Staff: ${order.staffName}`);
+
+  // 3) Customer (for pickup call-out on online/kiosk orders).
+  if (order.customerName) { bold(1); line(`Customer: ${order.customerName}`); bold(0); }
+  if (order.customerPhone) line(`Tel: ${order.customerPhone}`);
+
   rule();
   (order.items || []).forEach(item => {
-    push(0x1B, 0x45, 0x01);
-    line(`${item.qty} x ${item.name}`);
-    push(0x1B, 0x45, 0x00);
-    if (item.category !== 'snack' && item.category !== 'topping') {
+    bold(1);
+    line(`${item.qty || item.quantity || 1} x ${item.name}`);
+    bold(0);
+    if (item.category !== 'snack' && item.category !== 'topping' && (item.size || item.sugar != null || item.ice != null)) {
       line(`  ${item.size === 'L' ? 'Large' : 'Regular'}, ${item.sugar ?? 100}% sugar, ${item.ice ?? 100}% ice`);
     }
     if (item.toppings?.length) line(`  + ${item.toppings.map(t => t.name).join(', ')}`);
+    if (item.note) { bold(1); line(`  >> ${item.note}`); bold(0); } // per-item note (e.g. "less ice")
   });
-  if (order.note) {
-    rule();
-    line(`NOTE: ${order.note}`);
-  }
+  if (order.note) { rule(); bold(1); line(`NOTE: ${order.note}`); bold(0); }
   rule();
   line('\n\n');
-  push(0x1D, 0x56, 0x42, 0x00);
+  push(0x1D, 0x56, 0x42, 0x00); // cut
   return new Uint8Array(out);
 }
 
 function printKitchenTicket80mm(order) {
   const esc = (str) => String(str ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const rows = (order.items || []).map(item => `
-    <div class="item">${item.qty} x ${esc(item.name)}</div>
-    ${item.category !== 'snack' && item.category !== 'topping'
+    <div class="item">${item.qty || item.quantity || 1} x ${esc(item.name)}</div>
+    ${item.category !== 'snack' && item.category !== 'topping' && (item.size || item.sugar != null || item.ice != null)
       ? `<div class="sub">${item.size === 'L' ? 'Large' : 'Regular'}, ${item.sugar ?? 100}% sugar, ${item.ice ?? 100}% ice</div>`
       : ''}
     ${item.toppings?.length ? `<div class="sub">+ ${esc(item.toppings.map(t => t.name).join(', '))}</div>` : ''}
+    ${item.note ? `<div class="inote">&gt;&gt; ${esc(item.note)}</div>` : ''}
   `).join('');
+  const type = String(order.type || order.orderType || '').toUpperCase();
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Kitchen Ticket</title>
 <style>
 @page { size: 80mm auto; margin: 0; }
 body { width:80mm; padding:4mm 3mm; font-family:'Courier New',monospace; color:#000; font-size:13px; }
-.head { font-size:20px; font-weight:900; text-align:center; }
-.meta { font-size:11px; text-align:center; margin:3px 0 7px; }
+.banner { font-size:22px; font-weight:900; text-align:center; border:2px solid #000; border-radius:6px; padding:4px 0; }
+.head { font-size:30px; font-weight:900; text-align:center; margin:4px 0 2px; }
+.type { font-size:15px; font-weight:900; text-align:center; }
+.meta { font-size:11px; text-align:center; margin:2px 0 5px; }
+.cust { font-size:15px; font-weight:900; margin-top:4px; }
+.tel { font-size:13px; }
 .dash { border-top:1px dashed #000; margin:7px 0; }
-.item { font-size:16px; font-weight:900; margin-top:5px; }
-.sub { font-size:11px; padding-left:12px; }
+.item { font-size:16px; font-weight:900; margin-top:6px; }
+.sub { font-size:12px; padding-left:12px; }
+.inote { font-size:14px; font-weight:900; padding-left:12px; }
 .note { font-size:14px; font-weight:900; }
 </style></head><body>
-<div class="head">ORDER #${esc(order.number)}</div>
-<div class="meta">${esc((order.type || '').toUpperCase())} ${order.source ? `• ${esc(order.source)}` : ''}</div>
+<div class="banner">${esc(sourceLabel(order))}</div>
+<div class="head">#${esc(order.number)}</div>
+<div class="type">${esc(type)}${order.tableNumber ? ` &middot; TABLE ${esc(order.tableNumber)}` : ''}</div>
 <div class="meta">${new Date(order.completedAt || Date.now()).toLocaleString()}</div>
+${order.customerName ? `<div class="cust">Customer: ${esc(order.customerName)}</div>` : ''}
+${order.customerPhone ? `<div class="tel">Tel: ${esc(order.customerPhone)}</div>` : ''}
 <div class="dash"></div>
 ${rows}
 ${order.note ? `<div class="dash"></div><div class="note">NOTE: ${esc(order.note)}</div>` : ''}
