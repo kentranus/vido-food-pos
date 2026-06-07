@@ -96,6 +96,9 @@ jobs:
         working-directory: tablet-app
         run: |
           cp google-services.json android/app/google-services.json
+          # custom "new order" notification sound → res/raw/order_alert.wav
+          mkdir -p android/app/src/main/res/raw
+          cp android-config/order_alert.wav android/app/src/main/res/raw/order_alert.wav
           # project-level: add the google-services classpath next to the AGP one
           sed -i "s|\(classpath 'com.android.tools.build:gradle[^']*'\)|\1\n        classpath 'com.google.gms:google-services:4.4.2'|" android/build.gradle
           # app-level: apply the google-services plugin
