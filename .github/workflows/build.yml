@@ -92,6 +92,10 @@ jobs:
           mkdir -p android/app/src/main/res/xml
           cp android-config/network_security_config.xml android/app/src/main/res/xml/
 
+      - name: Inject google-services.json (from repo secret, never committed)
+        working-directory: tablet-app
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_B64 }}" | base64 -d > google-services.json
+
       - name: Configure Firebase Cloud Messaging
         working-directory: tablet-app
         run: |
